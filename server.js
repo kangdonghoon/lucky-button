@@ -1,4 +1,4 @@
-// 세상에서 제일 운이 좋은 사람 — 정답 판정과 기록은 서버가 맡는다.
+// The Luckiest Person in the World — 정답 판정과 기록은 서버가 맡는다.
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -117,23 +117,23 @@ async function handle(body, ip) {
   const t = body.t;
   // 가입·로그인
   if (t === 'signup' || t === 'login') {
-    if (limited('auth:' + ip, 30, 60000)) return [429, { error: '잠시 후 다시 해주세요' }];
+    if (limited('auth:' + ip, 30, 60000)) return [429, { error: 'Too many attempts. Try again in a minute.' }];
     const username = clean(body.username, 20).toLowerCase();
     const pw = String(body.password || '');
-    if (!/^[a-z0-9_]{3,20}$/.test(username)) return [400, { error: '아이디는 영문 소문자·숫자·_ 3~20자예요' }];
-    if (pw.length < 4 || pw.length > 100) return [400, { error: '비밀번호는 4자 이상이에요' }];
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) return [400, { error: 'Username must be 3–20 lowercase letters, numbers or _' }];
+    if (pw.length < 4 || pw.length > 100) return [400, { error: 'Password must be at least 4 characters' }];
     let u;
     if (t === 'signup') {
       const nick = clean(body.nick, 12);
-      if (nick.length < 1) return [400, { error: '닉네임을 적어주세요' }];
+      if (nick.length < 1) return [400, { error: 'Please enter a nickname' }];
       const salt = crypto.randomBytes(16).toString('hex');
       u = await store.createUser({ username, nick, pwHash: await scrypt(pw, salt), salt });
-      if (!u) return [409, { error: '이미 있는 아이디예요' }];
+      if (!u) return [409, { error: 'That username is taken' }];
       log('가입', username);
     } else {
       u = await store.userByName(username);
-      if (!u || !(await verifyPw(u, pw))) return [401, { error: '아이디나 비밀번호가 맞지 않아요' }];
-      if (u.banned) return [403, { error: '이용이 정지된 계정이에요' }];
+      if (!u || !(await verifyPw(u, pw))) return [401, { error: 'Wrong username or password' }];
+      if (u.banned) return [403, { error: 'This account has been suspended' }];
     }
     return [200, { sess: await newSession(u), me: await me(u) }];
   }
@@ -145,7 +145,7 @@ async function handle(body, ip) {
   if (t === 'logout') { await store.deleteSession(sha(body.sess)); sessCache.delete(sha(body.sess)); return [200, { ok: true }]; }
   if (t === 'nick') {
     const nick = clean(body.nick, 12);
-    if (nick.length < 1) return [400, { error: '닉네임을 적어주세요' }];
+    if (nick.length < 1) return [400, { error: 'Please enter a nickname' }];
     await store.setNick(u.id, nick); forgetUser(u.id);
     const r = runs.get(u.id); if (r) r.nick = nick;
     markBoard(); markLive();
@@ -162,11 +162,11 @@ async function handle(body, ip) {
   // 버튼 고르기: 정답은 누를 때마다 서버가 새로 정한다
   if (t === 'pick') {
     const r = runs.get(u.id);
-    if (!r) return [409, { error: '도전을 먼저 시작해 주세요' }];
+    if (!r) return [409, { error: 'Start a run first' }];
     const i = body.i === 1 ? 1 : body.i === 0 ? 0 : null;
     if (i == null) return [400, { error: 'bad pick' }];
     const now = Date.now();
-    if (now - r.last < PICK_GAP_MS) return [429, { error: '너무 빨라요' }];
+    if (now - r.last < PICK_GAP_MS) return [429, { error: 'Too fast' }];
     r.last = now;
     const answer = coin();
     if (answer === i && r.floor < MAX_FLOOR) {
@@ -188,7 +188,7 @@ async function handle(body, ip) {
 
   // ───── 관리자 ─────
   if (t && t.startsWith('admin')) {
-    if (!isAdmin(u)) return [403, { error: '관리자만 할 수 있어요' }];
+    if (!isAdmin(u)) return [403, { error: 'Admins only' }];
     if (t === 'adminUsers') return [200, { users: (await store.listUsers(clean(body.q, 30))).map(x => ({ id: x.id, username: x.username, nick: x.nick, best: x.best, plays: x.plays, picks: x.picks, banned: x.banned, createdAt: x.createdAt, lastSeen: x.lastSeen })) }];
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return [400, { error: 'bad id' }];
@@ -200,7 +200,7 @@ async function handle(body, ip) {
     }
     if (t === 'adminResetBest') { await store.resetBest(id); forgetUser(id); markBoard(); return [200, { ok: true }]; }
     if (t === 'adminNick') {
-      const nick = clean(body.nick, 12); if (!nick) return [400, { error: '닉네임을 적어주세요' }];
+      const nick = clean(body.nick, 12); if (!nick) return [400, { error: 'Please enter a nickname' }];
       await store.setNick(id, nick); forgetUser(id); markBoard(); return [200, { ok: true }];
     }
   }
@@ -215,7 +215,7 @@ function serveStatic(req, res, urlPath) {
   const file = path.normalize(path.join(PUBLIC_DIR, decodeURIComponent(urlPath)));
   if (!file.startsWith(PUBLIC_DIR + path.sep)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); return res.end('없는 페이지예요'); }
+    if (err) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); return res.end('Not found'); }
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff' });
     res.end(req.method === 'HEAD' ? undefined : data);
   });
@@ -247,9 +247,9 @@ const server = http.createServer(async (req, res) => {
         let body; try { body = JSON.parse(raw); } catch (e) { return json(res, 400, { error: 'bad json' }); }
         if (!body || typeof body !== 'object') return json(res, 400, { error: 'bad body' });
         const ip = clientIp(req);
-        if (limited('rq:' + String(body.sess || ip).slice(0, 60), 20, 1000)) return json(res, 429, { error: '너무 빨라요' });
+        if (limited('rq:' + String(body.sess || ip).slice(0, 60), 20, 1000)) return json(res, 429, { error: 'Too fast' });
         try { const [code, out] = await handle(body, ip); json(res, code, out); }
-        catch (e) { console.error(e); json(res, 500, { error: '서버 오류가 났어요. 잠시 후 다시 해주세요.' }); }
+        catch (e) { console.error(e); json(res, 500, { error: 'Server error. Please try again shortly.' }); }
       });
       return;
     }
@@ -257,14 +257,14 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(405); res.end();
   } catch (e) {
     console.error(e);
-    if (!res.headersSent) json(res, 500, { error: '서버 오류' });
+    if (!res.headersSent) json(res, 500, { error: 'Server error' });
   }
 });
 
 const ready = store.init()
   .then(refreshBoard)
   .then(() => new Promise(r => server.listen(PORT, HOST, () => {
-    log(`세상에서 제일 운이 좋은 사람 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'})`);
+    log(`The Luckiest Person in the World 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'})`);
     r();
   })))
   .catch(e => { console.error('DB 연결 실패:', e.message); process.exit(1); });

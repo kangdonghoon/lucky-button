@@ -1,4 +1,4 @@
-// 세상에서 제일 운이 좋은 사람 — 브라우저 쪽. 정답은 서버가 정하고, 여기서는 보여주기만 한다.
+// The Luckiest Person in the World — 브라우저 쪽. 정답은 서버가 정하고, 여기서는 보여주기만 한다.
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
@@ -24,7 +24,7 @@
       let out = {}; try { out = await r.json(); } catch (e) {}
       return { status: r.status, ...out };
     } catch (e) {
-      return { status: 0, error: '서버에 연결하지 못했어요' };
+      return { status: 0, error: "Couldn't reach the server" };
     } finally { clearTimeout(timer); }
   }
 
@@ -53,7 +53,7 @@
     lose: () => tone([300, 180], 0.25, 'sawtooth', 0.1),
     record: () => tone([660, 880, 1100, 1320], 0.14, 'triangle', 0.16),
   };
-  function renderSound() { $('soundBtn').textContent = sound ? '🔊 소리 켬' : '🔇 소리 끔'; }
+  function renderSound() { $('soundBtn').textContent = sound ? '🔊 Sound on' : '🔇 Sound off'; }
   $('soundBtn').addEventListener('click', () => { sound = !sound; store.set('lucky_sound', sound ? null : 'off'); renderSound(); if (sound) sfx.click(); });
 
   // ───────── 화면 전환 ─────────
@@ -69,17 +69,17 @@
   }
   function renderMe() {
     if (!me) return;
-    $('whoami').replaceChildren(document.createTextNode('안녕하세요, '), Object.assign(document.createElement('b'), { textContent: me.nick }), document.createTextNode(' 님'));
+    $('whoami').replaceChildren(document.createTextNode('Hi, '), Object.assign(document.createElement('b'), { textContent: me.nick }));
     $('adminLink').hidden = !me.admin;
     best = Math.max(best, me.best || 0);
     renderStats();
-    $('rank').textContent = me.rank ? `리더보드 ${me.rank}위` : '아직 기록 없음';
+    $('rank').textContent = me.rank ? `Leaderboard #${me.rank}` : 'No record yet';
   }
   function probText(n) {
-    if (n === 0) return '확률 100%';
+    if (n === 0) return 'Odds 100%';
     const d = Math.pow(2, n), p = 100 / d;
     const pct = p >= 10 ? p.toFixed(0) : p >= 1 ? p.toFixed(1) : p >= 0.0001 ? p.toPrecision(2) : p.toExponential(1);
-    return `확률 1/${d.toLocaleString()} (${pct}%)`;
+    return `Odds 1 in ${d.toLocaleString('en-US')} (${pct}%)`;
   }
   function renderStats() {
     $('floor').textContent = floor;
@@ -95,7 +95,7 @@
     $('nickRow').hidden = authMode !== 'signup';
     $('aNick').required = authMode === 'signup';
     $('aPw').autocomplete = authMode === 'signup' ? 'new-password' : 'current-password';
-    $('authBtn').textContent = authMode === 'signup' ? '가입하고 시작' : '로그인하고 시작';
+    $('authBtn').textContent = authMode === 'signup' ? 'Sign up & play' : 'Log in & play';
     $('authErr').textContent = '';
   }));
   $('authForm').addEventListener('submit', async e => {
@@ -103,7 +103,7 @@
     $('authBtn').disabled = true; $('authErr').textContent = '';
     const r = await api({ t: authMode, username: $('aUser').value.trim(), password: $('aPw').value, nick: $('aNick').value.trim() }, 70000);
     $('authBtn').disabled = false;
-    if (!r.sess) { $('authErr').textContent = r.error || '다시 시도해 주세요'; return; }
+    if (!r.sess) { $('authErr').textContent = r.error || 'Please try again'; return; }
     sess = r.sess; store.set('lucky_sess', sess); me = r.me; $('aPw').value = '';
     showGame();
     startRun();
@@ -117,7 +117,7 @@
     e.preventDefault();
     const r = await api({ t: 'nick', nick: $('nickInput').value.trim() });
     if (r.status === 401) return showAuth();
-    if (!r.me) { $('nickErr').textContent = r.error || '다시 시도해 주세요'; return; }
+    if (!r.me) { $('nickErr').textContent = r.error || 'Please try again'; return; }
     me = r.me; renderMe(); $('nickModal').hidden = true;
   });
 
@@ -133,7 +133,7 @@
   function setReveal(d, ok) {
     d.classList.add(ok ? 'win' : 'lose');
     d.querySelector('.ico').textContent = ok ? '✓' : '✗';
-    d.querySelector('.txt').textContent = ok ? '통과' : '실패';
+    d.querySelector('.txt').textContent = ok ? 'PASS' : 'FAIL';
   }
   function setMsg(text, cls) { $('msg').className = 'msg' + (cls ? ' ' + cls : ''); $('msg').textContent = text; }
   const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -145,10 +145,10 @@
     const r = await api({ t: 'start' });
     if (r.status === 401) return showAuth();
     busy = false; resetDoors();
-    if (r.status !== 200) { setMsg(r.error || '시작하지 못했어요. 새로고침해 주세요', 'warn'); return; }
+    if (r.status !== 200) { setMsg(r.error || "Couldn't start. Please refresh the page", 'warn'); return; }
     floor = r.floor || 0;
     renderStats();
-    setMsg(floor > 0 ? `${floor}단계에서 이어서 도전해요` : '버튼을 눌러 1단계에 도전하세요');
+    setMsg(floor > 0 ? `Picking up where you left off: level ${floor}` : 'Press a button to take on level 1');
   }
 
   async function choose(i) {
@@ -164,7 +164,7 @@
     if (r.status === 401) return showAuth();
     if (r.status === 409) { await startRun(); return; }
     if (r.status !== 200) {
-      setMsg(r.status === 429 ? '천천히 눌러주세요' : (r.error || '연결이 불안정해요') + ' · 다시 눌러주세요', 'warn');
+      setMsg(r.status === 429 ? 'Slow down a little' : (r.error || 'Connection hiccup') + ' · Press again', 'warn');
       resetDoors(); busy = false; return;
     }
 
@@ -172,7 +172,7 @@
       setReveal(picked, true);
       floor = r.floor; best = Math.max(best, r.best || 0);
       if (r.record) sfx.record(); else sfx.win();
-      setMsg((r.record ? '🏆 신기록! ' : ['통과!', '살았다!', '좋아요!', '계속 가자!', '운이 좋네요!'][floor % 5] + ' ') + `→ ${floor}단계`, 'win');
+      setMsg((r.record ? '🏆 New record! ' : ['Pass!', 'Phew!', 'Nice!', 'Keep going!', 'Lucky you!'][floor % 5] + ' ') + `→ Level ${floor}`, 'win');
       renderStats();
       $('floor').classList.remove('climb'); void $('floor').offsetWidth; $('floor').classList.add('climb');
       await wait(600);
@@ -182,7 +182,7 @@
       const other = doors[1 - i];
       setReveal(other, true); other.classList.add('dim');
       sfx.lose();
-      setMsg('실패…', 'lose');
+      setMsg('Fail…', 'lose');
       $('stage').classList.remove('shake'); void $('stage').offsetWidth; $('stage').classList.add('shake');
       best = Math.max(best, r.best || 0);
       if (me) { me.best = r.best; me.rank = r.rank; }
@@ -194,11 +194,11 @@
   function gameOver(r) {
     over = true; busy = false;
     const f = r.floor;
-    $('overSub').textContent = f === 0 ? '첫 버튼에서 탈락!' : '최종 기록';
-    $('overScore').textContent = `${f}단계`;
-    $('overProb').textContent = f > 0 ? `${probText(f)}을 뚫었어요` : '다음엔 운이 따를 거예요';
+    $('overSub').textContent = f === 0 ? 'Out on the very first button!' : 'Final score';
+    $('overScore').textContent = `Level ${f}`;
+    $('overProb').textContent = f > 0 ? `You beat ${probText(f).replace('Odds ', 'odds of ')}` : 'Luck will be on your side next time';
     $('badge').classList.toggle('show', !!r.newBest);
-    $('overRank').textContent = r.rank ? `리더보드 ${r.rank}위 · 최고 ${r.best}단계` : '';
+    $('overRank').textContent = r.rank ? `Leaderboard #${r.rank} · Best: level ${r.best}` : '';
     renderMe();
     $('over').classList.add('show');
     $('retry').focus();
@@ -222,7 +222,7 @@
     const rows = board.board || [];
     if (!rows.length) {
       const e = document.createElement('div'); e.className = 'empty';
-      e.textContent = '아직 기록이 없어요. 첫 번째 주인공이 되어보세요!';
+      e.textContent = 'No records yet. Be the first!';
       list.appendChild(e);
     }
     const medals = ['🥇', '🥈', '🥉'];
@@ -231,9 +231,9 @@
       if (idx < 3) li.classList.add('top');
       if (me && r.id === me.id) li.classList.add('me');
       const rank = document.createElement('span'); rank.className = 'rank'; rank.textContent = medals[idx] || String(idx + 1);
-      const name = document.createElement('span'); name.className = 'name'; name.textContent = r.nick + (me && r.id === me.id ? ' (나)' : '');
+      const name = document.createElement('span'); name.className = 'name'; name.textContent = r.nick + (me && r.id === me.id ? ' (you)' : '');
       const sc = document.createElement('span'); sc.className = 'score'; sc.textContent = r.best;
-      const small = document.createElement('small'); small.textContent = '단계'; sc.appendChild(small);
+      const small = document.createElement('small'); small.textContent = 'lv'; sc.appendChild(small);
       li.append(rank, name, sc);
       list.appendChild(li);
     });
@@ -242,10 +242,10 @@
     $('liveList').replaceChildren(...live.map(x => {
       const li = document.createElement('li');
       const n = document.createElement('b'); n.textContent = x.nick;
-      const f = document.createElement('span'); f.textContent = `${x.floor}단계`;
+      const f = document.createElement('span'); f.textContent = `Level ${x.floor}`;
       li.append(n, f); return li;
     }));
-    $('lbStatus').textContent = `실시간 반영 · 접속 ${board.online || 0}명 · 도전 중 ${board.playing || 0}명`;
+    $('lbStatus').textContent = `Live · ${board.online || 0} online · ${board.playing || 0} playing`;
   }
   function connectEvents() {
     let es;
@@ -256,7 +256,7 @@
       // 순위는 리더보드가 바뀔 때 다시 받는다
       if (me && board.v !== lastBoardV) { lastBoardV = board.v; refreshMe(); }
     };
-    es.onerror = () => { $('lbStatus').textContent = '연결이 끊겼어요. 다시 연결하는 중…'; };
+    es.onerror = () => { $('lbStatus').textContent = 'Connection lost. Reconnecting…'; };
   }
   let lastBoardV = -1, meTimer = 0;
   function refreshMe() {
@@ -274,11 +274,11 @@
   (async () => {
     if (!sess) { showAuth(); return; }
     // 무료 서버는 잠들어 있으면 깨는 데 시간이 걸린다
-    const slow = setTimeout(() => setMsg('서버를 깨우는 중이에요 (최대 1분)…', 'warn'), 3000);
+    const slow = setTimeout(() => setMsg('Waking up the server (up to a minute)…', 'warn'), 3000);
     $('game').hidden = false; doors.forEach(d => d.disabled = true);
     const r = await api({ t: 'me' }, 70000);
     clearTimeout(slow);
-    if (!r.me) { if (r.status === 401) return showAuth(); setMsg(r.error || '서버에 연결하지 못했어요. 새로고침해 주세요', 'warn'); return; }
+    if (!r.me) { if (r.status === 401) return showAuth(); setMsg(r.error || "Couldn't reach the server. Please refresh the page", 'warn'); return; }
     me = r.me;
     showGame();
     startRun();

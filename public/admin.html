@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>관리자 — 세상에서 제일 운이 좋은 사람</title>
+<title>Admin — The Luckiest Person in the World</title>
 <link rel="stylesheet" href="/style.css">
 <style>
   .admin{max-width:960px;margin:0 auto;padding:24px 14px}
@@ -24,21 +24,21 @@
 </head>
 <body>
 <div class="admin">
-  <h1>관리자</h1>
-  <div class="note" id="who">확인 중…</div>
+  <h1>Admin</h1>
+  <div class="note" id="who">Checking…</div>
   <div id="panel" hidden>
     <div class="bar">
-      <input id="q" placeholder="아이디·닉네임 검색">
-      <button class="btn ghost" id="reload" style="margin:0">새로고침</button>
-      <a class="link" href="/">← 게임으로</a>
+      <input id="q" placeholder="Search username or nickname">
+      <button class="btn ghost" id="reload" style="margin:0">Refresh</button>
+      <a class="link" href="/">← Back to game</a>
     </div>
     <div class="card tw">
       <table>
-        <thead><tr><th>#</th><th>아이디</th><th>닉네임</th><th>최고</th><th>도전</th><th>누른 수</th><th>가입</th><th>마지막</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Username</th><th>Nickname</th><th>Best</th><th>Runs</th><th>Presses</th><th>Joined</th><th>Last seen</th><th></th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <p class="note">기록 초기화: 최고 기록을 0으로 돌려 리더보드에서 빠져요. 정지: 로그인이 풀리고 리더보드에서 숨겨져요.</p>
+    <p class="note">Reset record: sets their best to 0 and removes them from the leaderboard. Suspend: logs them out and hides them from the leaderboard.</p>
   </div>
 </div>
 <div class="modal" id="dlg" hidden>
@@ -47,8 +47,8 @@
     <div id="dlgBody" class="muted"></div>
     <input id="dlgInput" maxlength="12" hidden>
     <div class="row">
-      <button type="button" class="btn ghost" id="dlgCancel">취소</button>
-      <button type="submit" class="btn" id="dlgOk">확인</button>
+      <button type="button" class="btn ghost" id="dlgCancel">Cancel</button>
+      <button type="submit" class="btn" id="dlgOk">OK</button>
     </div>
   </form>
 </div>
@@ -60,10 +60,10 @@
     try {
       const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ sess }, body)) });
       return Object.assign({ status: r.status }, await r.json().catch(() => ({})));
-    } catch (e) { return { status: 0, error: '연결 실패' }; }
+    } catch (e) { return { status: 0, error: 'Connection failed' }; }
   }
-  const fmt = ms => ms ? new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
-  // 확인 창 (브라우저 confirm 대신)
+  const fmt = ms => ms ? new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+  // confirm dialog (instead of window.confirm)
   function ask(title, body, input) {
     return new Promise(res => {
       $('dlgTitle').textContent = title; $('dlgBody').textContent = body || '';
@@ -76,17 +76,17 @@
   }
   async function load() {
     const r = await api({ t: 'adminUsers', q: $('q').value.trim() });
-    if (r.status !== 200) { $('who').textContent = r.status === 401 ? '먼저 게임 화면에서 로그인해 주세요.' : (r.error || '불러오지 못했어요'); $('panel').hidden = true; return; }
-    $('who').textContent = `회원 ${r.users.length}명 (최대 200명 표시)`; $('panel').hidden = false;
+    if (r.status !== 200) { $('who').textContent = r.status === 401 ? 'Please log in on the game page first.' : (r.error || "Couldn't load users"); $('panel').hidden = true; return; }
+    $('who').textContent = `${r.users.length} users (showing up to 200)`; $('panel').hidden = false;
     $('rows').replaceChildren(...r.users.map((u, i) => {
       const tr = document.createElement('tr'); if (u.banned) tr.className = 'banned';
-      const cells = [i + 1, u.username, u.nick + (u.banned ? ' (정지)' : ''), u.best, u.plays, u.picks, fmt(u.createdAt), fmt(u.lastSeen)];
+      const cells = [i + 1, u.username, u.nick + (u.banned ? ' (suspended)' : ''), u.best, u.plays, u.picks, fmt(u.createdAt), fmt(u.lastSeen)];
       cells.forEach((v, k) => { const td = document.createElement('td'); td.textContent = v; if ([0, 3, 4, 5].includes(k)) td.className = 'n'; tr.appendChild(td); });
       const td = document.createElement('td'); const act = document.createElement('div'); act.className = 'act';
       const btn = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; act.appendChild(b); };
-      btn('닉네임', async () => { const v = await ask(`${u.username} 닉네임 변경`, '', u.nick); if (v) { await api({ t: 'adminNick', id: u.id, nick: v }); load(); } });
-      btn('기록 초기화', async () => { if (await ask('기록 초기화', `${u.nick}(${u.username})의 최고 기록 ${u.best}단계를 0으로 돌릴까요?`)) { await api({ t: 'adminResetBest', id: u.id }); load(); } });
-      btn(u.banned ? '정지 해제' : '정지', async () => { if (await ask(u.banned ? '정지 해제' : '이용 정지', `${u.nick}(${u.username})을 ${u.banned ? '정지 해제할까요?' : '정지할까요?'}`)) { await api({ t: 'adminBan', id: u.id, banned: !u.banned }); load(); } });
+      btn('Nickname', async () => { const v = await ask(`Change nickname for ${u.username}`, '', u.nick); if (v) { await api({ t: 'adminNick', id: u.id, nick: v }); load(); } });
+      btn('Reset record', async () => { if (await ask('Reset record', `Reset ${u.nick} (${u.username})'s best of level ${u.best} to 0?`)) { await api({ t: 'adminResetBest', id: u.id }); load(); } });
+      btn(u.banned ? 'Unsuspend' : 'Suspend', async () => { if (await ask(u.banned ? 'Unsuspend' : 'Suspend', `${u.banned ? 'Unsuspend' : 'Suspend'} ${u.nick} (${u.username})?`)) { await api({ t: 'adminBan', id: u.id, banned: !u.banned }); load(); } });
       td.appendChild(act); tr.appendChild(td); return tr;
     }));
   }
