@@ -1,0 +1,18 @@
+{
+  "name": "lucky-button",
+  "version": "1.0.0",
+  "description": "세상에서 제일 운이 좋은 사람 — 50:50 버튼 고르기 + 실시간 리더보드 (서버 판정)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/store.test.js && node test/server.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}
