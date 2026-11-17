@@ -64,6 +64,7 @@ const clients = new Set();
 let board = [];          // 상위 BOARD_SIZE
 let boardV = 0;
 let liveDirty = false, boardDirty = true;
+let dbReady = false; // 테이블이 만들어지기 전에는 리더보드를 읽지 않는다 (Neon은 깨는 데 몇 초 걸림)
 async function refreshBoard() {
   try { board = await store.top(BOARD_SIZE); boardV++; } catch (e) { dbErr(e); }
 }
@@ -82,7 +83,7 @@ function markLive() { liveDirty = true; }
 function markBoard() { boardDirty = true; }
 // 짧은 간격으로 모아서 한 번에 보낸다
 setInterval(async () => {
-  if (!boardDirty && !liveDirty) return;
+  if (!dbReady || (!boardDirty && !liveDirty)) return;
   const wasBoard = boardDirty;
   boardDirty = false; liveDirty = false;
   if (wasBoard) await refreshBoard();
@@ -262,7 +263,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 const ready = store.init()
-  .then(refreshBoard)
+  .then(() => { dbReady = true; return refreshBoard(); })
   .then(() => new Promise(r => server.listen(PORT, HOST, () => {
     log(`The Luckiest Person in the World 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'})`);
     r();
