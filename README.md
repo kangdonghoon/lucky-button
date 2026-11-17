@@ -21,7 +21,6 @@
 | `server.js` | Node `http` 서버 하나. 정적 파일, `POST /api`, `GET /events`(SSE 리더보드), `GET /api/board`, `/healthz` |
 | `store.js` | `DATABASE_URL`이 있으면 Postgres(`PgStore`), 없으면 메모리(`MemStore`). 테이블은 시작할 때 자동 생성 |
 | `public/index.html`, `app.js`, `style.css` | 게임·로그인·리더보드 화면. 효과음은 WebAudio 합성 |
-| `public/admin.html` | 관리자 페이지 (`/admin`) |
 | `test/` | 저장소 테스트, 서버 통합 테스트, 로컬 Postgres용 `pg-shim.js` |
 
 - 플레이어: 닉네임만 받아요. 처음 닉네임을 정하면 브라우저(localStorage `lucky_sess`)에 열쇠(세션 토큰)를 저장하고, 기록은 그 열쇠로 이어져요. DB에는 토큰의 sha256만 저장해요.
@@ -29,11 +28,17 @@
   - 닉네임은 대소문자 구분 없이 한 사람만 쓸 수 있어요(먼저 쓴 사람 것, DB 유니크 인덱스).
   - 같은 IP에서 새 플레이어는 시간당 20명까지.
 - 진행 중인 도전은 서버 메모리에만 있어요. 서버가 잠들면 진행 중이던 도전은 사라지지만, 최고 기록은 DB에 남아요.
-- API (`POST /api`, 본문 `{t, sess, ...}`): `join {nick}`, `me`, `nick`, `start`, `pick {i: 0|1}`, 관리자용(`key` 필요) `adminCheck`, `adminUsers`, `adminBan`, `adminResetBest`, `adminNick`.
+- API (`POST /api`, 본문 `{t, sess, ...}`): `join {nick}`, `me`, `nick`, `start`, `pick {i: 0|1}`.
 
-## 관리자
-`ADMIN_KEY` 환경 변수에 관리자 비밀 키(길고 아무도 모르는 문자열)를 넣어요. `/admin`에 들어가 그 키를 입력하면 돼요(브라우저 탭을 닫으면 다시 입력).
-플레이어 검색, 닉네임 변경, 기록 초기화, 이용 정지(게임에서 빠지고 리더보드에서 숨김, 닉네임은 계속 막아 둠)를 할 수 있어요.
+## 관리
+관리자 페이지는 없어요. 닉네임이나 기록을 고쳐야 하면 Neon 콘솔의 **SQL Editor**에서 직접 바꿔요.
+```sql
+SELECT id, nick, best, plays FROM users ORDER BY best DESC LIMIT 50;   -- 목록
+UPDATE users SET nick = '새닉네임' WHERE id = 3;                        -- 닉네임 변경
+UPDATE users SET best = 0, best_at = 0 WHERE id = 3;                   -- 기록 초기화
+UPDATE users SET banned = TRUE WHERE id = 3;                           -- 리더보드에서 숨기고 게임에서 빼기
+```
+(서버는 리더보드를 메모리에 들고 있어서, SQL로 바꾼 뒤에는 누군가 신기록을 내거나 Render에서 재시작하면 반영돼요.)
 
 ## 로컬 실행
 ```bash
@@ -48,9 +53,7 @@ npm test
 2. **Render** → New → Web Service → 이 저장소 선택.
    - **Language: Node**, **Instance: Free**, **Region: Singapore**
    - Build `npm install`, Start `node server.js`, Health check path `/healthz`
-3. 환경 변수
-   - `DATABASE_URL` = Neon 연결 문자열
-   - `ADMIN_KEY` = 관리자 비밀 키 (`/admin`에서 입력)
+3. 환경 변수: `DATABASE_URL` = Neon 연결 문자열
 4. 이후 main에 push하면 자동으로 다시 배포돼요.
 
 무료 한도: Render는 15분 동안 요청이 없으면 잠들고, 깨는 데 1분쯤 걸려요(화면에 "서버를 깨우는 중" 표시). Neon은 5분 쉬면 멈췄다가 요청이 오면 다시 켜져요.

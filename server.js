@@ -9,7 +9,6 @@ const { createStore } = require('./store.js');
 const PORT = process.env.PORT != null && process.env.PORT !== '' ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const ADMIN_KEY = String(process.env.ADMIN_KEY || '').trim(); // /admin에서 입력하는 관리자 비밀 키
 const SESSION_MS = 5 * 365 * 24 * 3600 * 1000; // 브라우저에 저장된 열쇠 유효기간 (사실상 영구)
 const BOARD_SIZE = 20;
 const PICK_GAP_MS = Number(process.env.PICK_GAP_MS ?? 250); // 버튼 연타·자동 클릭 방지 (서버 기준 최소 간격)
@@ -25,10 +24,6 @@ const dbErr = e => console.error('[db]', e && e.message || e);
 // ───────── 플레이어 ─────────
 // 비밀번호 없음: 닉네임을 정하면 브라우저에 세션 토큰(열쇠)을 저장하고, 기록은 그 열쇠로 이어진다.
 const rid = n => crypto.randomBytes(n).toString('base64url').replace(/[^a-zA-Z0-9]/g, '').slice(0, n);
-function adminOk(key) {
-  if (!ADMIN_KEY || typeof key !== 'string' || !key) return false;
-  return crypto.timingSafeEqual(Buffer.from(sha(key), 'hex'), Buffer.from(sha(ADMIN_KEY), 'hex'));
-}
 async function newSession(u) {
   const token = crypto.randomBytes(32).toString('base64url');
   await store.createSession(sha(token), u.id, Date.now() + SESSION_MS);
@@ -126,30 +121,6 @@ async function handle(body, ip) {
     return [200, { sess: await newSession(u), me: await me(u) }];
   }
 
-  // ───── 관리자 (ADMIN_KEY) ─────
-  if (typeof t === 'string' && t.startsWith('admin')) {
-    if (limited('admin:' + ip, 30, 60000)) return [429, { error: 'Too many attempts. Try again in a minute.' }];
-    if (!ADMIN_KEY) return [403, { error: 'Admin is not set up. Add ADMIN_KEY on the server.' }];
-    if (!adminOk(body.key)) return [403, { error: 'Wrong admin key' }];
-    if (t === 'adminCheck') return [200, { ok: true }];
-    if (t === 'adminUsers') return [200, { users: (await store.listUsers(clean(body.q, 30))).map(x => ({ id: x.id, nick: x.nick, best: x.best, plays: x.plays, picks: x.picks, banned: x.banned, createdAt: x.createdAt, lastSeen: x.lastSeen })) }];
-    const id = Number(body.id);
-    if (!Number.isInteger(id) || id <= 0) return [400, { error: 'bad id' }];
-    if (t === 'adminBan') {
-      await store.setBanned(id, !!body.banned);
-      if (body.banned) { await store.deleteUserSessions(id); runs.delete(id); markLive(); }
-      forgetUser(id); markBoard();
-      return [200, { ok: true }];
-    }
-    if (t === 'adminResetBest') { await store.resetBest(id); forgetUser(id); markBoard(); return [200, { ok: true }]; }
-    if (t === 'adminNick') {
-      const nick = clean(body.nick, 12); if (!nick) return [400, { error: 'Please enter a nickname' }];
-      if (!(await store.setNick(id, nick))) return [409, { error: 'That nickname is taken' }];
-      forgetUser(id); markBoard(); return [200, { ok: true }];
-    }
-    return [400, { error: 'unknown' }];
-  }
-
   const u = await authed(body.sess);
   if (!u) return [401, { error: 'auth' }];
 
@@ -206,7 +177,6 @@ async function handle(body, ip) {
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 function serveStatic(req, res, urlPath) {
   if (urlPath === '/') urlPath = '/index.html';
-  if (urlPath === '/admin') urlPath = '/admin.html';
   const file = path.normalize(path.join(PUBLIC_DIR, decodeURIComponent(urlPath)));
   if (!file.startsWith(PUBLIC_DIR + path.sep)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
@@ -259,7 +229,7 @@ const server = http.createServer(async (req, res) => {
 const ready = store.init()
   .then(() => { dbReady = true; return refreshBoard(); })
   .then(() => new Promise(r => server.listen(PORT, HOST, () => {
-    log(`The Luckiest Person in the World 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind}, 관리자 키: ${ADMIN_KEY ? '설정됨' : '없음'})`);
+    log(`The Luckiest Person in the World 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind})`);
     r();
   })))
   .catch(e => { console.error('DB 연결 실패:', e.message); process.exit(1); });

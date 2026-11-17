@@ -5,7 +5,6 @@ const http = require('http');
 
 process.env.PORT = '0';
 process.env.HOST = '127.0.0.1';
-process.env.ADMIN_KEY = 'secret-key';
 process.env.PICK_GAP_MS = '0';
 if (!process.env.KEEP_DB) delete process.env.DATABASE_URL;
 
@@ -50,7 +49,6 @@ async function playOnce(sess, pickFn) {
   // 정적 파일, 상태
   assert.equal((await get('/')).status, 200);
   assert.match((await get('/')).type, /text\/html/);
-  assert.equal((await get('/admin')).status, 200);
   assert.equal((await get('/app.js')).status, 200);
   assert.equal((await get('/../server.js')).status, 404);
   assert.notEqual((await get('/%2e%2e/server.js')).status, 200);
@@ -130,24 +128,9 @@ async function playOnce(sess, pickFn) {
   bd = JSON.parse((await get('/api/board')).body);
   assert.equal(bd.board[0].nick, '행운의동훈');
 
-  // 관리자 (ADMIN_KEY)
-  assert.equal((await post({ t: 'adminUsers', sess })).status, 403, 'no key');
-  assert.equal((await post({ t: 'adminUsers', key: 'wrong' })).status, 403, 'wrong key');
-  const K = 'secret-key';
-  assert.equal((await post({ t: 'adminCheck', key: K })).status, 200);
-  const au = await post({ t: 'adminUsers', key: K });
-  assert.equal(au.users.length, 2);
-  const dh = au.users.find(x => x.nick === '행운의동훈');
-  assert.equal((await post({ t: 'adminNick', key: K, id: dh.id, nick: '사장님' })).status, 409);
-  assert.equal((await post({ t: 'adminBan', key: K, id: dh.id, banned: true })).status, 200);
-  assert.equal((await post({ t: 'me', sess })).status, 401, 'banned → removed');
-  assert.equal((await post({ t: 'join', nick: '행운의동훈' })).status, 409, 'banned nick stays reserved');
-  await sleep(500);
-  bd = JSON.parse((await get('/api/board')).body);
-  assert.equal(bd.board.length, 0, 'banned hidden');
-  await post({ t: 'adminBan', key: K, id: dh.id, banned: false });
-  await post({ t: 'adminResetBest', key: K, id: dh.id });
-  assert.equal((await post({ t: 'adminUsers', key: K })).users.find(x => x.id === dh.id).best, 0);
+  // 관리자 기능은 없음
+  assert.equal((await post({ t: 'adminUsers', key: 'x' })).status, 401);
+  assert.equal((await get('/admin')).status, 404);
 
   // 연타 제한
   const s3 = await post({ t: 'join', nick: '빠름' });
