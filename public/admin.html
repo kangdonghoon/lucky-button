@@ -26,19 +26,23 @@
 <div class="admin">
   <h1>Admin</h1>
   <div class="note" id="who">Checking…</div>
+  <form id="keyForm" class="bar" hidden>
+    <input id="keyInput" type="password" placeholder="Admin key (ADMIN_KEY)" autocomplete="current-password">
+    <button class="btn" style="margin:0">Unlock</button>
+  </form>
   <div id="panel" hidden>
     <div class="bar">
-      <input id="q" placeholder="Search username or nickname">
+      <input id="q" placeholder="Search nickname">
       <button class="btn ghost" id="reload" style="margin:0">Refresh</button>
       <a class="link" href="/">← Back to game</a>
     </div>
     <div class="card tw">
       <table>
-        <thead><tr><th>#</th><th>Username</th><th>Nickname</th><th>Best</th><th>Runs</th><th>Presses</th><th>Joined</th><th>Last seen</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Nickname</th><th>Best</th><th>Runs</th><th>Presses</th><th>Joined</th><th>Last seen</th><th></th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <p class="note">Reset record: sets their best to 0 and removes them from the leaderboard. Suspend: logs them out and hides them from the leaderboard.</p>
+    <p class="note">Reset record: sets their best to 0 and removes them from the leaderboard. Suspend: removes them from the game and the leaderboard, and keeps the nickname reserved.</p>
   </div>
 </div>
 <div class="modal" id="dlg" hidden>
@@ -55,10 +59,10 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  let sess = null; try { sess = localStorage.getItem('lucky_sess'); } catch (e) {}
+  let key = ''; try { key = sessionStorage.getItem('lucky_admin_key') || ''; } catch (e) {}
   async function api(body) {
     try {
-      const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ sess }, body)) });
+      const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ key }, body)) });
       return Object.assign({ status: r.status }, await r.json().catch(() => ({})));
     } catch (e) { return { status: 0, error: 'Connection failed' }; }
   }
@@ -76,20 +80,29 @@
   }
   async function load() {
     const r = await api({ t: 'adminUsers', q: $('q').value.trim() });
-    if (r.status !== 200) { $('who').textContent = r.status === 401 ? 'Please log in on the game page first.' : (r.error || "Couldn't load users"); $('panel').hidden = true; return; }
-    $('who').textContent = `${r.users.length} users (showing up to 200)`; $('panel').hidden = false;
+    if (r.status !== 200) {
+      $('who').textContent = key ? (r.error || "Couldn't load users") : 'Enter the admin key to continue.';
+      $('panel').hidden = true; $('keyForm').hidden = false; $('keyInput').focus();
+      return;
+    }
+    $('who').textContent = `${r.users.length} player${r.users.length === 1 ? '' : 's'} (showing up to 200)`; $('panel').hidden = false; $('keyForm').hidden = true;
     $('rows').replaceChildren(...r.users.map((u, i) => {
       const tr = document.createElement('tr'); if (u.banned) tr.className = 'banned';
-      const cells = [i + 1, u.username, u.nick + (u.banned ? ' (suspended)' : ''), u.best, u.plays, u.picks, fmt(u.createdAt), fmt(u.lastSeen)];
-      cells.forEach((v, k) => { const td = document.createElement('td'); td.textContent = v; if ([0, 3, 4, 5].includes(k)) td.className = 'n'; tr.appendChild(td); });
+      const cells = [i + 1, u.nick + (u.banned ? ' (suspended)' : ''), u.best, u.plays, u.picks, fmt(u.createdAt), fmt(u.lastSeen)];
+      cells.forEach((v, k) => { const td = document.createElement('td'); td.textContent = v; if ([0, 2, 3, 4].includes(k)) td.className = 'n'; tr.appendChild(td); });
       const td = document.createElement('td'); const act = document.createElement('div'); act.className = 'act';
       const btn = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; act.appendChild(b); };
-      btn('Nickname', async () => { const v = await ask(`Change nickname for ${u.username}`, '', u.nick); if (v) { await api({ t: 'adminNick', id: u.id, nick: v }); load(); } });
-      btn('Reset record', async () => { if (await ask('Reset record', `Reset ${u.nick} (${u.username})'s best of level ${u.best} to 0?`)) { await api({ t: 'adminResetBest', id: u.id }); load(); } });
-      btn(u.banned ? 'Unsuspend' : 'Suspend', async () => { if (await ask(u.banned ? 'Unsuspend' : 'Suspend', `${u.banned ? 'Unsuspend' : 'Suspend'} ${u.nick} (${u.username})?`)) { await api({ t: 'adminBan', id: u.id, banned: !u.banned }); load(); } });
+      btn('Nickname', async () => { const v = await ask(`Change nickname for ${u.nick}`, '', u.nick); if (v) { const r = await api({ t: 'adminNick', id: u.id, nick: v }); if (r.status !== 200) await ask('Not changed', r.error || 'Please try again'); load(); } });
+      btn('Reset record', async () => { if (await ask('Reset record', `Reset ${u.nick}'s best of level ${u.best} to 0?`)) { await api({ t: 'adminResetBest', id: u.id }); load(); } });
+      btn(u.banned ? 'Unsuspend' : 'Suspend', async () => { if (await ask(u.banned ? 'Unsuspend' : 'Suspend', `${u.banned ? 'Unsuspend' : 'Suspend'} ${u.nick}?`)) { await api({ t: 'adminBan', id: u.id, banned: !u.banned }); load(); } });
       td.appendChild(act); tr.appendChild(td); return tr;
     }));
   }
+  $('keyForm').addEventListener('submit', e => {
+    e.preventDefault(); key = $('keyInput').value; $('keyInput').value = '';
+    try { sessionStorage.setItem('lucky_admin_key', key); } catch (e) {}
+    load();
+  });
   let qt = 0;
   $('q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(load, 300); });
   $('reload').addEventListener('click', load);

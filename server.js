@@ -9,8 +9,8 @@ const { createStore } = require('./store.js');
 const PORT = process.env.PORT != null && process.env.PORT !== '' ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const ADMINS = new Set((process.env.ADMIN_USERS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
-const SESSION_MS = 30 * 24 * 3600 * 1000; // 로그인 유지 30일
+const ADMIN_KEY = String(process.env.ADMIN_KEY || '').trim(); // /admin에서 입력하는 관리자 비밀 키
+const SESSION_MS = 5 * 365 * 24 * 3600 * 1000; // 브라우저에 저장된 열쇠 유효기간 (사실상 영구)
 const BOARD_SIZE = 20;
 const PICK_GAP_MS = Number(process.env.PICK_GAP_MS ?? 250); // 버튼 연타·자동 클릭 방지 (서버 기준 최소 간격)
 const RUN_IDLE_MS = 10 * 60 * 1000;   // 10분 동안 안 누른 도전은 정리
@@ -22,14 +22,12 @@ const sha = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const dbErr = e => console.error('[db]', e && e.message || e);
 
-// ───────── 계정 ─────────
-const isAdmin = u => !!u && ADMINS.has(u.username);
-function scrypt(pw, salt) {
-  return new Promise((res, rej) => crypto.scrypt(String(pw), salt, 64, (e, k) => e ? rej(e) : res(k.toString('hex'))));
-}
-async function verifyPw(u, pw) {
-  const h = await scrypt(pw, u.salt);
-  return crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(u.pwHash, 'hex'));
+// ───────── 플레이어 ─────────
+// 비밀번호 없음: 닉네임을 정하면 브라우저에 세션 토큰(열쇠)을 저장하고, 기록은 그 열쇠로 이어진다.
+const rid = n => crypto.randomBytes(n).toString('base64url').replace(/[^a-zA-Z0-9]/g, '').slice(0, n);
+function adminOk(key) {
+  if (!ADMIN_KEY || typeof key !== 'string' || !key) return false;
+  return crypto.timingSafeEqual(Buffer.from(sha(key), 'hex'), Buffer.from(sha(ADMIN_KEY), 'hex'));
 }
 async function newSession(u) {
   const token = crypto.randomBytes(32).toString('base64url');
@@ -110,33 +108,46 @@ async function me(u) {
   const r = runs.get(u.id);
   return {
     id: fresh.id, username: fresh.username, nick: fresh.nick, best: fresh.best, plays: fresh.plays,
-    rank: await store.rankOf(u.id), admin: isAdmin(fresh), floor: r ? r.floor : null,
+    rank: await store.rankOf(u.id), floor: r ? r.floor : null,
   };
 }
 
 async function handle(body, ip) {
   const t = body.t;
-  // 가입·로그인
-  if (t === 'signup' || t === 'login') {
-    if (limited('auth:' + ip, 30, 60000)) return [429, { error: 'Too many attempts. Try again in a minute.' }];
-    const username = clean(body.username, 20).toLowerCase();
-    const pw = String(body.password || '');
-    if (!/^[a-z0-9_]{3,20}$/.test(username)) return [400, { error: 'Username must be 3–20 lowercase letters, numbers or _' }];
-    if (pw.length < 4 || pw.length > 100) return [400, { error: 'Password must be at least 4 characters' }];
-    let u;
-    if (t === 'signup') {
-      const nick = clean(body.nick, 12);
-      if (nick.length < 1) return [400, { error: 'Please enter a nickname' }];
-      const salt = crypto.randomBytes(16).toString('hex');
-      u = await store.createUser({ username, nick, pwHash: await scrypt(pw, salt), salt });
-      if (!u) return [409, { error: 'That username is taken' }];
-      log('가입', username);
-    } else {
-      u = await store.userByName(username);
-      if (!u || !(await verifyPw(u, pw))) return [401, { error: 'Wrong username or password' }];
-      if (u.banned) return [403, { error: 'This account has been suspended' }];
-    }
+  // 닉네임만 정하고 시작
+  if (t === 'join') {
+    const nick = clean(body.nick, 12);
+    if (nick.length < 1) return [400, { error: 'Please enter a nickname' }];
+    if (await store.nickTaken(nick)) return [409, { error: 'That nickname is taken. Try another one.' }];
+    if (limited('join:' + ip, 20, 3600000)) return [429, { error: 'Too many new players from here. Try again later.' }];
+    const u = await store.createUser({ username: 'p_' + rid(12), nick, pwHash: '', salt: '' });
+    if (!u) return [409, { error: 'That nickname is taken. Try another one.' }];
+    log('새 플레이어', nick);
     return [200, { sess: await newSession(u), me: await me(u) }];
+  }
+
+  // ───── 관리자 (ADMIN_KEY) ─────
+  if (typeof t === 'string' && t.startsWith('admin')) {
+    if (limited('admin:' + ip, 30, 60000)) return [429, { error: 'Too many attempts. Try again in a minute.' }];
+    if (!ADMIN_KEY) return [403, { error: 'Admin is not set up. Add ADMIN_KEY on the server.' }];
+    if (!adminOk(body.key)) return [403, { error: 'Wrong admin key' }];
+    if (t === 'adminCheck') return [200, { ok: true }];
+    if (t === 'adminUsers') return [200, { users: (await store.listUsers(clean(body.q, 30))).map(x => ({ id: x.id, nick: x.nick, best: x.best, plays: x.plays, picks: x.picks, banned: x.banned, createdAt: x.createdAt, lastSeen: x.lastSeen })) }];
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id <= 0) return [400, { error: 'bad id' }];
+    if (t === 'adminBan') {
+      await store.setBanned(id, !!body.banned);
+      if (body.banned) { await store.deleteUserSessions(id); runs.delete(id); markLive(); }
+      forgetUser(id); markBoard();
+      return [200, { ok: true }];
+    }
+    if (t === 'adminResetBest') { await store.resetBest(id); forgetUser(id); markBoard(); return [200, { ok: true }]; }
+    if (t === 'adminNick') {
+      const nick = clean(body.nick, 12); if (!nick) return [400, { error: 'Please enter a nickname' }];
+      if (!(await store.setNick(id, nick))) return [409, { error: 'That nickname is taken' }];
+      forgetUser(id); markBoard(); return [200, { ok: true }];
+    }
+    return [400, { error: 'unknown' }];
   }
 
   const u = await authed(body.sess);
@@ -147,7 +158,8 @@ async function handle(body, ip) {
   if (t === 'nick') {
     const nick = clean(body.nick, 12);
     if (nick.length < 1) return [400, { error: 'Please enter a nickname' }];
-    await store.setNick(u.id, nick); forgetUser(u.id);
+    if (!(await store.setNick(u.id, nick))) return [409, { error: 'That nickname is taken. Try another one.' }];
+    forgetUser(u.id);
     const r = runs.get(u.id); if (r) r.nick = nick;
     markBoard(); markLive();
     return [200, { me: await me(u) }];
@@ -187,24 +199,6 @@ async function handle(body, ip) {
     return [200, { ok: false, answer, floor: r.floor, best: fresh.best, newBest: r.floor > 0 && r.floor === fresh.best && fresh.bestAt >= r.startedAt, rank: await store.rankOf(u.id) }];
   }
 
-  // ───── 관리자 ─────
-  if (t && t.startsWith('admin')) {
-    if (!isAdmin(u)) return [403, { error: 'Admins only' }];
-    if (t === 'adminUsers') return [200, { users: (await store.listUsers(clean(body.q, 30))).map(x => ({ id: x.id, username: x.username, nick: x.nick, best: x.best, plays: x.plays, picks: x.picks, banned: x.banned, createdAt: x.createdAt, lastSeen: x.lastSeen })) }];
-    const id = Number(body.id);
-    if (!Number.isInteger(id) || id <= 0) return [400, { error: 'bad id' }];
-    if (t === 'adminBan') {
-      await store.setBanned(id, !!body.banned);
-      if (body.banned) { await store.deleteUserSessions(id); runs.delete(id); markLive(); }
-      forgetUser(id); markBoard();
-      return [200, { ok: true }];
-    }
-    if (t === 'adminResetBest') { await store.resetBest(id); forgetUser(id); markBoard(); return [200, { ok: true }]; }
-    if (t === 'adminNick') {
-      const nick = clean(body.nick, 12); if (!nick) return [400, { error: 'Please enter a nickname' }];
-      await store.setNick(id, nick); forgetUser(id); markBoard(); return [200, { ok: true }];
-    }
-  }
   return [400, { error: 'unknown' }];
 }
 
@@ -265,7 +259,7 @@ const server = http.createServer(async (req, res) => {
 const ready = store.init()
   .then(() => { dbReady = true; return refreshBoard(); })
   .then(() => new Promise(r => server.listen(PORT, HOST, () => {
-    log(`The Luckiest Person in the World 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'})`);
+    log(`The Luckiest Person in the World 서버 실행 중: http://localhost:${server.address().port} (저장소: ${store.kind}, 관리자 키: ${ADMIN_KEY ? '설정됨' : '없음'})`);
     r();
   })))
   .catch(e => { console.error('DB 연결 실패:', e.message); process.exit(1); });

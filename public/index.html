@@ -19,27 +19,19 @@
     <div class="topbar" id="topbar" hidden>
       <span id="whoami"></span>
       <button class="link" id="nickBtn">Change nickname</button>
-      <a class="link" id="adminLink" href="/admin" hidden>Admin</a>
       <button class="link" id="soundBtn">🔊 Sound on</button>
-      <button class="link" id="logoutBtn">Log out</button>
     </div>
   </header>
 
   <main class="card">
-    <!-- Log in / sign up -->
+    <!-- Pick a nickname -->
     <section id="auth" class="auth" hidden>
-      <div class="tabs">
-        <button class="tab on" data-mode="login">Log in</button>
-        <button class="tab" data-mode="signup">I'm new</button>
-      </div>
-      <form id="authForm" autocomplete="on">
-        <label>Username<input id="aUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="3–20 lowercase letters or numbers" required></label>
-        <label>Password<input id="aPw" name="password" type="password" autocomplete="current-password" maxlength="100" placeholder="At least 4 characters" required></label>
-        <label id="nickRow" hidden>Nickname<input id="aNick" maxlength="12" placeholder="Shown on the leaderboard (max 12)"></label>
-        <button class="btn" type="submit" id="authBtn">Log in &amp; play</button>
+      <form id="authForm" autocomplete="off">
+        <label>Your nickname<input id="aNick" maxlength="12" placeholder="Shown on the leaderboard (max 12)" autocomplete="nickname" required></label>
+        <button class="btn" type="submit" id="authBtn">Play</button>
         <div class="err" id="authErr"></div>
       </form>
-      <p class="muted small">You need an account to get on the leaderboard. No email required.</p>
+      <p class="muted small">No sign-up needed. Your record is saved in this browser, so use the same device to keep climbing.</p>
     </section>
 
     <!-- Game -->

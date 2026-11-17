@@ -38,6 +38,9 @@ class PgStore {
       last_seen  BIGINT NOT NULL DEFAULT 0
     )`);
     await this.q(`CREATE INDEX IF NOT EXISTS users_board_idx ON users(best DESC, best_at ASC)`);
+    // 닉네임은 대소문자 구분 없이 한 사람만 (먼저 쓴 사람 것)
+    try { await this.q(`CREATE UNIQUE INDEX IF NOT EXISTS users_nick_lower_idx ON users (LOWER(nick))`); }
+    catch (e) { console.error('[db] 겹치는 닉네임이 있어서 닉네임 중복 방지 인덱스를 못 만들었어요:', e.message); }
     await this.q(`CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY,
       user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -84,7 +87,15 @@ class PgStore {
     const r = await this.q(`SELECT COUNT(*) AS n FROM users WHERE NOT banned AND best > 0 AND (best > $1 OR (best = $1 AND (best_at < $2 OR (best_at = $2 AND id < $3))))`, [u.best, u.bestAt, u.id]);
     return Number(r.rows[0].n) + 1;
   }
-  async setNick(userId, nick) { await this.q(`UPDATE users SET nick = $2 WHERE id = $1`, [userId, nick]); }
+  // 다른 사람이 쓰는 닉네임이면 false
+  async setNick(userId, nick) {
+    try { await this.q(`UPDATE users SET nick = $2 WHERE id = $1`, [userId, nick]); return true; }
+    catch (e) { if (e.code === '23505') return false; throw e; }
+  }
+  async nickTaken(nick, exceptId) {
+    const r = await this.q(`SELECT 1 FROM users WHERE LOWER(nick) = LOWER($1) AND id <> $2 LIMIT 1`, [nick, exceptId || 0]);
+    return r.rows.length > 0;
+  }
   async setBanned(userId, banned) { await this.q(`UPDATE users SET banned = $2 WHERE id = $1`, [userId, !!banned]); }
   async resetBest(userId) { await this.q(`UPDATE users SET best = 0, best_at = 0 WHERE id = $1`, [userId]); }
   async listUsers(search) {
@@ -101,7 +112,7 @@ class MemStore {
   constructor() { this.users = new Map(); this.sessions = new Map(); this.seq = 0; this.kind = 'memory'; }
   async init() {}
   async createUser({ username, nick, pwHash, salt }) {
-    for (const u of this.users.values()) if (u.username === username) return null;
+    for (const u of this.users.values()) if (u.username === username || u.nick.toLowerCase() === String(nick).toLowerCase()) return null;
     const now = Date.now();
     const u = { id: ++this.seq, username, nick, pwHash, salt, best: 0, bestAt: 0, plays: 0, picks: 0, banned: false, createdAt: now, lastSeen: now };
     this.users.set(u.id, u);
@@ -130,7 +141,15 @@ class MemStore {
   }
   async top(limit) { return this._sorted().slice(0, limit).map(boardRow); }
   async rankOf(userId) { const i = this._sorted().findIndex(u => u.id === userId); return i < 0 ? null : i + 1; }
-  async setNick(userId, nick) { const u = this.users.get(userId); if (u) u.nick = nick; }
+  async setNick(userId, nick) {
+    if (await this.nickTaken(nick, userId)) return false;
+    const u = this.users.get(userId); if (u) u.nick = nick; return true;
+  }
+  async nickTaken(nick, exceptId) {
+    const n = String(nick).toLowerCase();
+    for (const u of this.users.values()) if (u.id !== exceptId && u.nick.toLowerCase() === n) return true;
+    return false;
+  }
   async setBanned(userId, banned) { const u = this.users.get(userId); if (u) u.banned = !!banned; }
   async resetBest(userId) { const u = this.users.get(userId); if (u) { u.best = 0; u.bestAt = 0; } }
   async listUsers(search) {

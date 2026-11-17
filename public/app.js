@@ -60,6 +60,7 @@
   function showAuth() {
     me = null; sess = null; store.set('lucky_sess', null);
     $('auth').hidden = false; $('game').hidden = true; $('topbar').hidden = true;
+    setTimeout(() => $('aNick').focus(), 0);
     renderBoard();
   }
   function showGame() {
@@ -70,7 +71,6 @@
   function renderMe() {
     if (!me) return;
     $('whoami').replaceChildren(document.createTextNode('Hi, '), Object.assign(document.createElement('b'), { textContent: me.nick }));
-    $('adminLink').hidden = !me.admin;
     best = Math.max(best, me.best || 0);
     renderStats();
     $('rank').textContent = me.rank ? `Leaderboard #${me.rank}` : 'No record yet';
@@ -87,28 +87,17 @@
     $('prob').textContent = probText(floor);
   }
 
-  // ───────── 로그인 / 가입 ─────────
-  let authMode = 'login';
-  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-    authMode = t.dataset.mode;
-    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-    $('nickRow').hidden = authMode !== 'signup';
-    $('aNick').required = authMode === 'signup';
-    $('aPw').autocomplete = authMode === 'signup' ? 'new-password' : 'current-password';
-    $('authBtn').textContent = authMode === 'signup' ? 'Sign up & play' : 'Log in & play';
-    $('authErr').textContent = '';
-  }));
+  // ───────── 닉네임만 정하고 시작 ─────────
   $('authForm').addEventListener('submit', async e => {
     e.preventDefault();
     $('authBtn').disabled = true; $('authErr').textContent = '';
-    const r = await api({ t: authMode, username: $('aUser').value.trim(), password: $('aPw').value, nick: $('aNick').value.trim() }, 70000);
+    const r = await api({ t: 'join', nick: $('aNick').value.trim() }, 70000);
     $('authBtn').disabled = false;
     if (!r.sess) { $('authErr').textContent = r.error || 'Please try again'; return; }
-    sess = r.sess; store.set('lucky_sess', sess); me = r.me; $('aPw').value = '';
+    sess = r.sess; store.set('lucky_sess', sess); me = r.me;
     showGame();
     startRun();
   });
-  $('logoutBtn').addEventListener('click', async () => { await api({ t: 'logout' }); showAuth(); });
 
   // 닉네임 변경
   $('nickBtn').addEventListener('click', () => { $('nickInput').value = me ? me.nick : ''; $('nickErr').textContent = ''; $('nickModal').hidden = false; $('nickInput').focus(); });

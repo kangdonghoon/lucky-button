@@ -5,7 +5,7 @@ const http = require('http');
 
 process.env.PORT = '0';
 process.env.HOST = '127.0.0.1';
-process.env.ADMIN_USERS = 'boss';
+process.env.ADMIN_KEY = 'secret-key';
 process.env.PICK_GAP_MS = '0';
 if (!process.env.KEEP_DB) delete process.env.DATABASE_URL;
 
@@ -56,17 +56,15 @@ async function playOnce(sess, pickFn) {
   assert.notEqual((await get('/%2e%2e/server.js')).status, 200);
   assert.equal(JSON.parse((await get('/healthz')).body).ok, true);
 
-  // 가입·로그인 검증
-  assert.equal((await post({ t: 'signup', username: 'A!', password: '1234', nick: 'x' })).status, 400);
-  assert.equal((await post({ t: 'signup', username: 'donghun', password: '12', nick: 'x' })).status, 400);
-  assert.equal((await post({ t: 'signup', username: 'donghun', password: '1234', nick: '' })).status, 400);
-  const s1 = await post({ t: 'signup', username: 'donghun', password: 'pass1234', nick: '<동훈>' });
-  assert.equal(s1.status, 200); assert.ok(s1.sess); assert.equal(s1.me.nick, '동훈', 'html stripped'); assert.equal(s1.me.admin, false);
-  assert.equal((await post({ t: 'signup', username: 'donghun', password: 'x1234', nick: 'y' })).status, 409);
-  assert.equal((await post({ t: 'login', username: 'donghun', password: 'wrong' })).status, 401);
-  const l1 = await post({ t: 'login', username: 'DongHun', password: 'pass1234' });
-  assert.equal(l1.status, 200, 'username case-insensitive');
-  const sess = l1.sess;
+  // 닉네임만으로 시작
+  assert.equal((await post({ t: 'join', nick: '' })).status, 400);
+  assert.equal((await post({ t: 'join', nick: '   ' })).status, 400);
+  const s1 = await post({ t: 'join', nick: '<동훈>' });
+  assert.equal(s1.status, 200); assert.ok(s1.sess); assert.equal(s1.me.nick, '동훈', 'html stripped');
+  assert.equal((await post({ t: 'join', nick: '동훈' })).status, 409, 'nick taken');
+  const sess = s1.sess;
+  assert.equal((await post({ t: 'me', sess })).me.nick, '동훈');
+  assert.equal((await post({ t: 'signup', username: 'abc', password: '1234', nick: 'z' })).status, 401, 'old signup gone');
   assert.equal((await post({ t: 'me', sess: 'x'.repeat(40) })).status, 401);
   assert.equal((await post({ t: 'pick', sess, i: 0 })).status, 409, 'must start first');
 
@@ -107,8 +105,8 @@ async function playOnce(sess, pickFn) {
   m = await post({ t: 'me', sess }); assert.equal(m.me.floor, floorNow);
 
   // 리더보드 + 지금 도전 중
-  const s2 = await post({ t: 'signup', username: 'boss', password: 'boss1234', nick: '사장님' });
-  assert.equal(s2.me.admin, true);
+  const s2 = await post({ t: 'join', nick: '사장님' });
+  assert.equal(s2.status, 200);
   await sleep(500);
   let bd = JSON.parse((await get('/api/board')).body);
   assert.equal(bd.board[0].nick, '동훈'); assert.equal(bd.board[0].best, maxFloor);
@@ -126,30 +124,33 @@ async function playOnce(sess, pickFn) {
   assert.equal(sse.board[0].nick, '동훈');
 
   // 닉네임 변경이 리더보드에 반영
+  assert.equal((await post({ t: 'nick', sess, nick: '사장님' })).status, 409, 'cannot take someone else nick');
   assert.equal((await post({ t: 'nick', sess, nick: '행운의동훈' })).me.nick, '행운의동훈');
   await sleep(500);
   bd = JSON.parse((await get('/api/board')).body);
   assert.equal(bd.board[0].nick, '행운의동훈');
 
-  // 관리자
-  assert.equal((await post({ t: 'adminUsers', sess })).status, 403);
-  const au = await post({ t: 'adminUsers', sess: s2.sess });
+  // 관리자 (ADMIN_KEY)
+  assert.equal((await post({ t: 'adminUsers', sess })).status, 403, 'no key');
+  assert.equal((await post({ t: 'adminUsers', key: 'wrong' })).status, 403, 'wrong key');
+  const K = 'secret-key';
+  assert.equal((await post({ t: 'adminCheck', key: K })).status, 200);
+  const au = await post({ t: 'adminUsers', key: K });
   assert.equal(au.users.length, 2);
-  const dh = au.users.find(x => x.username === 'donghun');
-  assert.equal((await post({ t: 'adminBan', sess: s2.sess, id: dh.id, banned: true })).status, 200);
-  assert.equal((await post({ t: 'me', sess })).status, 401, 'banned → logged out');
-  assert.equal((await post({ t: 'login', username: 'donghun', password: 'pass1234' })).status, 403);
+  const dh = au.users.find(x => x.nick === '행운의동훈');
+  assert.equal((await post({ t: 'adminNick', key: K, id: dh.id, nick: '사장님' })).status, 409);
+  assert.equal((await post({ t: 'adminBan', key: K, id: dh.id, banned: true })).status, 200);
+  assert.equal((await post({ t: 'me', sess })).status, 401, 'banned → removed');
+  assert.equal((await post({ t: 'join', nick: '행운의동훈' })).status, 409, 'banned nick stays reserved');
   await sleep(500);
   bd = JSON.parse((await get('/api/board')).body);
   assert.equal(bd.board.length, 0, 'banned hidden');
-  await post({ t: 'adminBan', sess: s2.sess, id: dh.id, banned: false });
-  const l2 = await post({ t: 'login', username: 'donghun', password: 'pass1234' });
-  assert.equal(l2.status, 200);
-  await post({ t: 'adminResetBest', sess: s2.sess, id: dh.id });
-  assert.equal((await post({ t: 'me', sess: l2.sess })).me.best, 0);
+  await post({ t: 'adminBan', key: K, id: dh.id, banned: false });
+  await post({ t: 'adminResetBest', key: K, id: dh.id });
+  assert.equal((await post({ t: 'adminUsers', key: K })).users.find(x => x.id === dh.id).best, 0);
 
   // 연타 제한
-  const s3 = await post({ t: 'signup', username: 'fast', password: 'fast1234', nick: '빠름' });
+  const s3 = await post({ t: 'join', nick: '빠름' });
   const burst = await Promise.all(Array.from({ length: 30 }, () => post({ t: 'me', sess: s3.sess })));
   assert.ok(burst.some(r => r.status === 429), 'rate limited');
 

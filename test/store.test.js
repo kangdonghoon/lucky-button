@@ -8,6 +8,10 @@ async function run(store, label) {
   const a = await store.createUser({ username: 'donghun', nick: "동훈's", pwHash: 'h1', salt: 's1' });
   assert.equal(a.username, 'donghun'); assert.equal(a.best, 0); assert.equal(a.banned, false); assert.equal(a.nick, "동훈's");
   assert.equal(await store.createUser({ username: 'donghun', nick: 'x', pwHash: 'h', salt: 's' }), null, 'dup');
+  assert.equal(await store.createUser({ username: 'other', nick: "동훈'S", pwHash: '', salt: '' }), null, 'dup nick (case-insensitive)');
+  assert.equal(await store.nickTaken("동훈's"), true);
+  assert.equal(await store.nickTaken("동훈's", a.id), false, 'own nick is fine');
+  assert.equal(await store.nickTaken('없는닉'), false);
   const b = await store.createUser({ username: 'minsu', nick: '민수', pwHash: 'h2', salt: 's2' });
   const c = await store.createUser({ username: 'jiyoung', nick: '지영', pwHash: 'h3', salt: 's3' });
   assert.equal((await store.userByName('minsu')).id, b.id);
@@ -52,7 +56,9 @@ async function run(store, label) {
   assert.equal(await store.rankOf(b.id), null);
   assert.equal(await store.raiseBest(b.id, 1, 5000), true);
 
-  await store.setNick(a.id, '새닉'); assert.equal((await store.userById(a.id)).nick, '새닉');
+  assert.equal(await store.setNick(a.id, '새닉'), true); assert.equal((await store.userById(a.id)).nick, '새닉');
+  assert.equal(await store.setNick(a.id, '민수'), false, 'taken nick'); assert.equal((await store.userById(a.id)).nick, '새닉');
+  assert.equal(await store.setNick(a.id, '새닉'), true, 'same nick again');
   assert.equal((await store.listUsers('MIN')).length, 1, 'search case-insensitive');
   assert.equal((await store.listUsers()).length, 3);
   await store.createSession('tokB', a.id, Date.now() + 60000);
